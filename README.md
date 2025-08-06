@@ -1,2 +1,2 @@
-# sparrow-hawk-doc
-Github pages for sparrow-hawk board
+# qa-support
+Discussions for QA support
