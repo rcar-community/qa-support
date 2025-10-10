@@ -1,0 +1,36 @@
+labels: [Issue Report]
+body:
+  - type: input
+    attributes:
+      label: Host PC OS
+      description: ex）Ubuntu xx.xx
+    validations:
+      required: false
+
+  - type: input
+    attributes:
+      label: BSP
+      description: Yocto or Debian or something else
+    validations:
+      required: false
+
+  - type: input
+    attributes:
+      label: BSP version
+      description: ex）Release v2025-09-30
+    validations:
+      required: false
+
+  - type: input
+    attributes:
+      label: Reference / 参考 / 参考 / 參考
+      description: ex) URL, document name / 例) URL、ドキュメント名 / 例如) 网址,文档名称 / 例如) 網址、文件名稱
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Issue / 問題 / 问题 / 問題
+      description: Please tell issue more detail and/or share Reprocedure and logs, screenshots, etc. / 問題の詳細や再現手順、ログ、スクリーンショットなどを共有してください。 / 请提供更详细的问题描述，并分享复现步骤、日志、截图等信息。 / 請提供更詳細的問題描述，並分享重現步驟、日誌、螢幕截圖等相關資訊。
+    validations:
+      required: true
