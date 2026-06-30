@@ -1,0 +1,164 @@
+name: Notify Q&A Discussion Update
+
+on:
+  discussion:
+    types: [created, edited]
+  discussion_comment:
+    types: [created, edited]
+  workflow_dispatch:
+    inputs:
+      discussion_number:
+        description: Discussion number to test
+        required: true
+        default: '20'
+      event_type:
+        description: Simulated event type
+        required: true
+        default: Discussion
+        type: choice
+        options:
+          - Discussion
+          - Discussion Comment
+
+jobs:
+  notify:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.discussion.category.slug == 'q-a'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fetch discussion via API (manual test)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RESULT=$(gh api graphql -f query='
+            query($owner: String!, $repo: String!, $number: Int!) {
+              repository(owner: $owner, name: $repo) {
+                discussion(number: $number) {
+                  title
+                  body
+                  url
+                  author { login }
+                  comments(last: 1) {
+                    nodes { body url author { login } }
+                  }
+                }
+              }
+            }
+          ' -f owner='${{ github.repository_owner }}' \
+            -f repo='${{ github.event.repository.name }}' \
+            -F number=${{ inputs.discussion_number }})
+
+          echo "TITLE=$(echo "$RESULT" | jq -r '.data.repository.discussion.title')" >> "$GITHUB_ENV"
+          echo "EVENT_TYPE=${{ inputs.event_type }}" >> "$GITHUB_ENV"
+
+          if [ "${{ inputs.event_type }}" = "Discussion Comment" ]; then
+            echo "URL=$(echo "$RESULT" | jq -r '.data.repository.discussion.comments.nodes[0].url')" >> "$GITHUB_ENV"
+            echo "AUTHOR=$(echo "$RESULT" | jq -r '.data.repository.discussion.comments.nodes[0].author.login')" >> "$GITHUB_ENV"
+            {
+              echo 'BODY<<__EOF__'
+              echo "$RESULT" | jq -r '.data.repository.discussion.comments.nodes[0].body'
+              echo '__EOF__'
+            } >> "$GITHUB_ENV"
+          else
+            echo "URL=$(echo "$RESULT" | jq -r '.data.repository.discussion.url')" >> "$GITHUB_ENV"
+            echo "AUTHOR=$(echo "$RESULT" | jq -r '.data.repository.discussion.author.login')" >> "$GITHUB_ENV"
+            {
+              echo 'BODY<<__EOF__'
+              echo "$RESULT" | jq -r '.data.repository.discussion.body'
+              echo '__EOF__'
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: Set context from event
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          DISCUSSION_BODY: ${{ github.event.discussion.body }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          if [ "${{ github.event_name }}" = "discussion" ]; then
+            echo "TITLE=${{ github.event.discussion.title }}" >> "$GITHUB_ENV"
+            echo "URL=${{ github.event.discussion.html_url }}" >> "$GITHUB_ENV"
+            echo "AUTHOR=${{ github.event.discussion.user.login }}" >> "$GITHUB_ENV"
+            echo "EVENT_TYPE=Discussion" >> "$GITHUB_ENV"
+            {
+              echo 'BODY<<__EOF__'
+              printf '%s' "$DISCUSSION_BODY"
+              echo '__EOF__'
+            } >> "$GITHUB_ENV"
+          else
+            echo "TITLE=${{ github.event.discussion.title }}" >> "$GITHUB_ENV"
+            echo "URL=${{ github.event.comment.html_url }}" >> "$GITHUB_ENV"
+            echo "AUTHOR=${{ github.event.comment.user.login }}" >> "$GITHUB_ENV"
+            echo "EVENT_TYPE=Discussion Comment" >> "$GITHUB_ENV"
+            {
+              echo 'BODY<<__EOF__'
+              printf '%s' "$COMMENT_BODY"
+              echo '__EOF__'
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: Build and send
+        run: |
+          DISPLAY_BODY=$(printf '%s' "$BODY" | python3 -c 'import sys,re; b=sys.stdin.read(); m=re.search(r"###\s+Issue[^\n]*\n+([\s\S]*)", b); print(m.group(1).strip() if m else b)')
+          BODY_ESCAPED=$(printf '%s' "$DISPLAY_BODY" | head -c 500 | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+          TITLE_ESCAPED=$(printf '%s' "$TITLE" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+          URL_ESCAPED=$(printf '%s' "$URL" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+          ACTION="${{ github.event_name == 'workflow_dispatch' && 'test' || github.event.action }}"
+
+          cat > payload.json <<EOF
+          {
+            "type": "message",
+            "attachments": [
+              {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                  "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "type": "AdaptiveCard",
+                  "version": "1.4",
+                  "body": [
+                    {
+                      "type": "TextBlock",
+                      "size": "Medium",
+                      "weight": "Bolder",
+                      "text": "GitHub ${EVENT_TYPE} ${ACTION}"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "size": "Large",
+                      "weight": "Bolder",
+                      "text": $TITLE_ESCAPED,
+                      "wrap": true
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "by @${AUTHOR}",
+                      "isSubtle": true,
+                      "spacing": "None"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": $BODY_ESCAPED,
+                      "wrap": true,
+                      "maxLines": 8
+                    }
+                  ],
+                  "actions": [
+                    {
+                      "type": "Action.OpenUrl",
+                      "title": "Open in GitHub",
+                      "url": $URL_ESCAPED
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+          EOF
+
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            --data @payload.json \
+            "${{ secrets.TEAMS_WEBHOOK_URL }}"
