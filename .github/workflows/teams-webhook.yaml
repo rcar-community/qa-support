@@ -85,7 +85,7 @@ jobs:
             echo "EVENT_TYPE=Discussion" >> "$GITHUB_ENV"
             {
               echo 'BODY<<__EOF__'
-              printf '%s' "$DISCUSSION_BODY"
+              printf '%s\n' "$DISCUSSION_BODY"
               echo '__EOF__'
             } >> "$GITHUB_ENV"
           else
@@ -95,7 +95,7 @@ jobs:
             echo "EVENT_TYPE=Discussion Comment" >> "$GITHUB_ENV"
             {
               echo 'BODY<<__EOF__'
-              printf '%s' "$COMMENT_BODY"
+              printf '%s\n' "$COMMENT_BODY"
               echo '__EOF__'
             } >> "$GITHUB_ENV"
           fi
